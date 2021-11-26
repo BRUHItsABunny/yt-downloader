@@ -77,9 +77,9 @@ Alternatively you can just provide the program with the location of ffmpeg the e
 This was just an example, your location may be different
 
 ## Known bugs
-There is a known bug in the way downloads are currently being tracked, small chance of a nil pointer error occurring
+There is a known bug in the way downloads are currently being tracked, small chance of a nil pointer error occurring (hasn't occurred in 6 months of usage)
 
-Program doesn't compile, this is due to a missing dependency because of a closed source library
+Program doesn't compile, this is due to a missing dependency because of a closed source library (not a bug!)
 
 Program hangs after stream is done, this is something between YouTube and FFmpeg and I am not sure how to work around this yet.
 
