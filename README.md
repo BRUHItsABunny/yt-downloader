@@ -90,6 +90,7 @@ This project is just a prototype for a future project, this is not going to be m
 * Fix the known bugs
 * Add archiving support (can't always have the actual files in the working directory, so I need a better way to track archived videos)
 * Actually test playlist download, currently untested
+* Add way to store metadata
 
 ### Why bunny style?
 Bunnies like long term stability and given the way this was coded it promotes said stability as it relies on an API that doesn't change much (if at all)
