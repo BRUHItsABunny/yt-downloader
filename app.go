@@ -1,10 +1,12 @@
-package main
+package yt_downloader
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"github.com/BRUHItsABunny/bunnlog"
-	bunny_innertube_api "github.com/BRUHItsABunny/bunny-innertube-api"
+	biac "github.com/BRUHItsABunny/bunny-innertube-api/client"
+	"github.com/BRUHItsABunny/bunny-innertube-api/innertube"
 	gokhttp "github.com/BRUHItsABunny/gOkHttp"
 	"github.com/BRUHItsABunny/yt-downloader/utils"
 	"github.com/dustin/go-humanize"
@@ -12,6 +14,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,14 +22,14 @@ import (
 
 type App struct {
 	Args           *utils.AppArgs
-	YTClient       *bunny_innertube_api.YTClient
+	YTClient       *biac.YTClient
 	DownloadClient *gokhttp.HttpClient
 	BLog           *bunnlog.BunnyLog
 	UIChannel      chan *gokhttp.TrackerMessage
 	Wg             *sync.WaitGroup
 }
 
-func (app *App) Run() error {
+func (app *App) Run(ctx context.Context) error {
 	var (
 		output []byte
 		err    error
@@ -44,13 +47,13 @@ func (app *App) Run() error {
 
 	// Triggers
 	if app.Args.DoVideo() {
-		err = app.DownloadVideo()
+		err = app.DownloadVideo(ctx)
 	} else if app.Args.DoList() {
-		err = app.DownloadList()
+		err = app.DownloadList(ctx)
 	} else if app.Args.DoPlaylist() {
-		err = app.DownloadPlaylist()
+		err = app.DownloadPlaylist(ctx)
 	} else if app.Args.DoChannel() {
-		err = app.DownloadChannel()
+		err = app.DownloadChannel(ctx)
 	} else {
 		// Nothing to do, TODO: maybe add a wipe cache function too execute here?
 	}
@@ -60,24 +63,24 @@ func (app *App) Run() error {
 	return err
 }
 
-func (app *App) DownloadVideo() error {
+func (app *App) DownloadVideo(ctx context.Context) error {
 	var (
-		videoID string
+		videoID *innertube.InnerTubeResolvedURL
 		err     error
 	)
 	app.BLog.Info("Trigger: Download a video")
 	videoURL := utils.GetVideoURL(app.Args.GetVideo())
-	videoID, err = app.YTClient.GetVideoID(videoURL, "com.whatsapp")
+	videoID, err = app.YTClient.ResolveURL(ctx, videoURL, "com.whatsapp")
 	if err == nil {
-		err = app.processDownloadVideo(videoID)
+		err = app.processDownloadVideo(ctx, videoID.Result)
 	}
 	return err
 }
 
-func (app *App) DownloadList() error {
+func (app *App) DownloadList(ctx context.Context) error {
 	var (
 		file    *os.File
-		videoID string
+		videoID *innertube.InnerTubeResolvedURL
 		err     error
 	)
 	app.BLog.Info("Trigger: Download videos in list file")
@@ -90,9 +93,9 @@ func (app *App) DownloadList() error {
 					videoURL := utils.GetVideoURL(scanner.Text())
 					if len(videoURL) > 0 {
 						// TODO: in lib, result is NIL if url is invalid
-						videoID, err = app.YTClient.GetVideoID(videoURL, "com.whatsapp")
+						videoID, err = app.YTClient.ResolveURL(ctx, videoURL, "com.whatsapp")
 						if err == nil {
-							err = app.processDownloadVideo(videoID)
+							err = app.processDownloadVideo(ctx, videoID.Result)
 						}
 					}
 				} else {
@@ -108,32 +111,33 @@ func (app *App) DownloadList() error {
 	return err
 }
 
-func (app *App) DownloadPlaylist() error { // TODO: untested
+func (app *App) DownloadPlaylist(ctx context.Context) error { // TODO: untested
 	var (
-		playlistData *bunny_innertube_api.BunnyBrowsePlaylistResponse
-		listID       string
-		continuation string
-		err          error
+		playlistBrowse *innertube.InnerTubeBrowseResponse
+		listID         *innertube.InnerTubeResolvedURL
+		continuation   string
+		err            error
 	)
 	app.BLog.Info("Trigger: Download videos in playlist")
 	listURL := utils.GetPlaylistURL(app.Args.GetPlaylist())
-	listID, err = app.YTClient.GetPlaylistID(listURL, "com.whatsapp")
+	listID, err = app.YTClient.ResolveURL(ctx, listURL, "com.whatsapp")
 	counter := 0
 	offsetCounter := 0
 	resetCounter := 0
 	for {
 		app.BLog.Debug("We are inside the pagination loop, counter = ", counter)
 		app.BLog.Debug("Continuation: ", continuation)
-		if err == nil && counter <= app.Args.GetAmount() {
-			playlistData, err = app.YTClient.GetPlaylistContent(listID, continuation)
+		if err == nil && counter < app.Args.GetAmount() {
+			playlistBrowse, err = app.YTClient.GetPlaylistContent(ctx, listID.Result, continuation)
 			if err == nil {
-				app.BLog.Debug("Page has ", len(playlistData.Results), " results")
+				playlistData := playlistBrowse.Playlist
+				app.BLog.Debug("Page has ", len(playlistData.Playlist.Videos), " results")
 				continuation = playlistData.NextContinuation
-				for _, video := range playlistData.Results {
+				for _, video := range playlistData.Playlist.Videos {
 					if err == nil {
 						if offsetCounter >= app.Args.GetOffset() {
-							app.BLog.Info("Current tab (", counter%30, "/", len(playlistData.Results), " & Current Total(", counter, "/", app.Args.GetAmount(), ")")
-							err = app.processDownloadVideo(video.VideoId)
+							app.BLog.Info("Current tab (", counter%30, "/", len(playlistData.Playlist.Videos), " & Current Total(", counter, "/", app.Args.GetAmount(), ")")
+							err = app.processDownloadVideo(ctx, video.VideoID)
 							counter++
 							resetCounter++
 						} else {
@@ -143,14 +147,14 @@ func (app *App) DownloadPlaylist() error { // TODO: untested
 						app.BLog.Warn("Breaking because of err\n", err)
 						break
 					}
-					if counter > app.Args.GetAmount() {
+					if (counter + 1) > app.Args.GetAmount() {
 						app.BLog.Info("Breaking because counter reached amount as limit")
 						break
 					}
 					if resetCounter == 10 {
 						// Reset the device authentication for stability
 						app.BLog.Info("Resetting authentication")
-						_ = app.YTClient.RegisterDevice(nil)
+						_ = app.YTClient.RegisterDevice(ctx, true)
 						app.BLog.Debug("New visitor ID: ", app.YTClient.Device.VisitorID)
 						resetCounter = 0
 					}
@@ -169,37 +173,39 @@ func (app *App) DownloadPlaylist() error { // TODO: untested
 	return err
 }
 
-func (app *App) DownloadChannel() error {
+func (app *App) DownloadChannel(ctx context.Context) error {
 	var (
-		tabContent              *bunny_innertube_api.BunnyBrowseChannelResponse
-		channelTabs             map[string]string
-		channelID, continuation string
-		err                     error
+		tabContent    *innertube.InnerTubeBrowseResponse
+		channelTabs   *innertube.InnerTubeBrowseResponse
+		channelBrowse *innertube.InnerTubeResolvedURL
+		continuation  string
+		err           error
 	)
 	app.BLog.Info("Trigger: Download videos from channel uploads")
 	// Transform /channel/ID or user/username to channelID
 	channelURL := app.Args.GetChannel()
-	channelID, err = app.YTClient.GetChannelID(channelURL, "com.whatsapp")
+	channelBrowse, err = app.YTClient.ResolveURL(ctx, channelURL, "com.whatsapp")
 	counter := 0
 	offsetCounter := 0
 	resetCounter := 0
 	if err == nil {
-		channelTabs, err = app.YTClient.GetChannelTabs(channelID)
+		channelID := channelBrowse.Result
+		channelTabs, err = app.YTClient.GetChannelTabs(ctx, channelID)
 		if err == nil {
-			continuation = channelTabs["videos"]
+			continuation = channelTabs.Channel.ChannelTabs["videos"]
 			for {
 				app.BLog.Debug("We are inside the pagination loop, counter = ", counter)
 				app.BLog.Debug("Continuation: ", continuation)
-				if err == nil && counter <= app.Args.GetAmount() {
-					tabContent, err = app.YTClient.GetChannelTabContent(channelID, continuation)
+				if err == nil && counter < app.Args.GetAmount() {
+					tabContent, err = app.YTClient.GetChannelTabContent(ctx, channelID, continuation)
 					if err == nil {
-						continuation = tabContent.NextContinuation
-						app.BLog.Debug("Tab has ", len(tabContent.Results), " results")
-						for _, video := range tabContent.Results {
+						continuation = tabContent.Channel.NextContinuation
+						app.BLog.Debug("Tab has ", len(tabContent.Channel.Videos), " results")
+						for _, video := range tabContent.Channel.Videos {
 							if err == nil {
 								if offsetCounter >= app.Args.GetOffset() {
-									app.BLog.Info("Current tab (", counter%30, "/", len(tabContent.Results), " & Current Total(", counter, "/", app.Args.GetAmount(), ")")
-									err = app.processDownloadVideo(video.CompactVideoData.OnTap.InnerTubeCommand.WatchEndpoint.VideoId)
+									app.BLog.Info("Current tab (", counter%30, "/", len(tabContent.Channel.Videos), " & Current Total(", counter, "/", app.Args.GetAmount(), ")")
+									err = app.processDownloadVideo(ctx, video.VideoID)
 									counter++
 									resetCounter++
 								} else {
@@ -209,14 +215,14 @@ func (app *App) DownloadChannel() error {
 								app.BLog.Warn("Breaking because of err\n", err)
 								break
 							}
-							if counter > app.Args.GetAmount() {
+							if (counter + 1) > app.Args.GetAmount() {
 								app.BLog.Info("Breaking because counter reached amount as limit")
 								break
 							}
 							if resetCounter == 10 {
 								// Reset the device authentication for stability
 								app.BLog.Info("Resetting authentication")
-								_ = app.YTClient.RegisterDevice(nil)
+								_ = app.YTClient.RegisterDevice(ctx, true)
 								app.BLog.Debug("New visitor ID: ", app.YTClient.Device.VisitorID)
 								resetCounter = 0
 							}
@@ -237,21 +243,21 @@ func (app *App) DownloadChannel() error {
 	return err
 }
 
-func (app *App) processDownloadVideo(videoID string) error {
+func (app *App) processDownloadVideo(ctx context.Context, videoID string) error {
 	// TODO: Check if video exists before downloading parts
 	var (
-		videoData   *bunny_innertube_api.BunnyVideoResponse
+		videoData   *innertube.InnerTubeVideo
 		probeResult *utils.FFprobeResult
 		err         error
 	)
 	app.BLog.Debug("Enter: processingDownloadVideo(\"", videoID, "\")")
-	videoData, err = app.YTClient.GetVideoData(videoID)
+	videoData, err = app.YTClient.GetPlayer(ctx, videoID)
 
 	if err == nil {
 		if videoData.IsLiveStream {
 			app.BLog.Info("URL is live stream")
 			// TODO: Download stream, pipe ffmpeg to UI
-			probeResult, err = utils.ProbeContent(app.Args.GetFFprobePath(), videoData.HLSManifest)
+			probeResult, err = utils.ProbeContent(app.Args.GetFFprobePath(), videoData.ManifestHLS)
 			if err == nil {
 				decentResult := probeResult.Sort()
 				audioStream := decentResult["audio"][len(decentResult["audio"])-1]
@@ -266,7 +272,7 @@ func (app *App) processDownloadVideo(videoID string) error {
 
 				// Setup the exec call
 				// TODO: route ctrl+C to this
-				err = utils.DownloadLiveContentWithMaps(app.Args.GetFFmpegPath(), videoData.HLSManifest, fileName+".ts", audioStream.Index.String(), videoStream.Index.String(), true)
+				err = utils.DownloadLiveContentWithMaps(app.Args.GetFFmpegPath(), videoData.ManifestHLS, fileName+".ts", audioStream.Index.String(), videoStream.Index.String(), true)
 
 				if err == nil {
 					if *app.Args.MP4 {
@@ -280,7 +286,8 @@ func (app *App) processDownloadVideo(videoID string) error {
 				}
 			}
 		} else {
-			videoFiles, audioFiles := videoData.GetFormats(!*app.Args.MP4)
+			videoFilesList, audioFilesList := videoData.GetFormatsV2(!*app.Args.MP4)
+			videoFiles, audioFiles := videoFilesList.Formats, audioFilesList.Formats
 
 			var extension string
 			if *app.Args.AudioOnly {
@@ -296,6 +303,9 @@ func (app *App) processDownloadVideo(videoID string) error {
 			}
 
 			baseFilename := utils.SanitizeFileName(videoData.ChannelName + " - " + videoData.Title)
+			if *app.Args.PrependVideoID {
+				baseFilename = "[" + videoData.VideoID + "] " + baseFilename
+			}
 			videoFilename := baseFilename + "_video" + extension
 			audioFilename := baseFilename + "_audio" + extension
 			app.BLog.Debug("Checking for existence of: \"", baseFilename+extension, "\"")
@@ -317,13 +327,17 @@ func (app *App) processDownloadVideo(videoID string) error {
 						if err == nil {
 							_ = os.Remove(videoFilename)
 							_ = os.Remove(audioFilename)
-							// if *app.Args.MP4 {
-							// 	// Save file size using HEVC
-							// 	err = utils.ConvertToHEVCMP4(app.Args.GetFFmpegPath(), baseFilename + extension, baseFilename + ".mp4")
-							// 	if err == nil {
-							// 		_ = os.Remove(baseFilename + extension)
-							// 	}
-							//	}
+							if *app.Args.MP4 {
+								if *app.Args.HEVC {
+									// Save file size using HEVC
+									err = utils.ConvertToHEVCMP4(app.Args.GetFFmpegPath(), baseFilename+extension, baseFilename+".mp4", runtime.NumCPU()-1, true)
+									if err == nil {
+										_ = os.Remove(baseFilename + extension)
+									}
+								} else {
+									_ = os.Rename(baseFilename+extension, baseFilename+".mp4")
+								}
+							}
 						}
 					} else {
 						go app.DownloadFile(app.Args.GetThreads(), bestAudio.Url, baseFilename+extension)
@@ -468,7 +482,7 @@ func (app *App) RenderUI() {
 				shouldStop = true
 			}
 			for id, download := range dbProgress {
-				// Filename: 100mb.bin
+				// Filename: 100mb._bin
 				fmt.Println("Filename: " + download.FileName)
 				status := gokhttp.DownloadStatusString(download.Status)
 				amount = int(math.Round(float64(download.Progress) / float64(download.Size) * float64(100) / float64(2)))

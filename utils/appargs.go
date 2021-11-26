@@ -7,18 +7,21 @@ import (
 )
 
 type AppArgs struct {
-	Video         *string
-	List          *string
-	Playlist      *string
-	Channel       *string
-	FFmpegPath    *string
-	MP4           *bool
-	AudioOnly     *bool
-	Debug         *bool
-	Threads       *int
-	FFmpegThreads *int
-	Amount        *int
-	Offset        *int
+	Video          *string
+	List           *string
+	Playlist       *string
+	Channel        *string
+	FFmpegPath     *string
+	MP4            *bool
+	HEVC           *bool
+	StoreMetadata  *bool
+	PrependVideoID *bool
+	AudioOnly      *bool
+	Debug          *bool
+	Threads        *int
+	FFmpegThreads  *int
+	Amount         *int
+	Offset         *int
 }
 
 func (args *AppArgs) checkStrEmpty(attribute *string) (string, bool) {
