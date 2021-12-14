@@ -23,6 +23,7 @@ func main() {
 	// yt_downloader --mp4=false --debug=true --threads=8 --channel=https://www.youtube.com/c/TheThingoftheName/ --amount=57
 	// TODO: Actually check FFmpeg existence (not really necessary)
 	// TODO: Version check for updates (postponed, bunny-github-api planned)
+	// TODO: Automatically download subtitles and convert to .srt, optionally automatically bundle in the mp4 as a subtitle stream?
 	appArgs := utils.AppArgs{
 		Video:          flag.String("video", "", "URL containing videoId or videoId"),
 		List:           flag.String("list", "", "path to text file with video URL's (THIS IS NOT PLAYLIST)"),
@@ -32,14 +33,13 @@ func main() {
 		MP4:            flag.Bool("mp4", true, "true = mp4 videos (or m4a audio) will be downloaded, false = webm videos (or vorbis audio)"),
 		HEVC:           flag.Bool("hevc", false, "Compress MP4 with HEVC"),
 		PrependVideoID: flag.Bool("pid", false, "Prepends [yyyy-mm-dd HH:MM:SS] to filenames"),
-		// TODO: Enable this functionality, should I store .pb or .json, allow user to make the decision?
-		StoreMetadata: flag.Bool("meta", false, "Adds a file that contains the metadata belonging to the video (upload date, description, etc) [WORK IN PROGRESS]"),
-		AudioOnly:     flag.Bool("audio_only", false, "true = only audio will be downloaded, false = video + audio will be downloaded"),
-		Debug:         flag.Bool("debug", false, "if true this will write a debug logfile"),
-		Threads:       flag.Int("threads", 1, "Simultaneous threads for downloading (min 1, max 12)"),
-		FFmpegThreads: flag.Int("ffmpeg_threads", 1, "Simultaneous threads for encoding FFmpeg (min 1, max "+strconv.Itoa(runtime.NumCPU())+")"),
-		Amount:        flag.Int("amount", 1, "Amount of videos to download from channel or video (starting from latest)"),
-		Offset:        flag.Int("offset", 0, "Offset of videos to ignore before downloading videos from channel or video (starting from latest)"),
+		StoreMetadata:  flag.String("meta", "", "Adds a file that contains the metadata belonging to the video (upload date, description, etc) [json, proto]"),
+		AudioOnly:      flag.Bool("audio_only", false, "true = only audio will be downloaded, false = video + audio will be downloaded"),
+		Debug:          flag.Bool("debug", false, "if true this will write a debug logfile"),
+		Threads:        flag.Int("threads", 1, "Simultaneous threads for downloading (min 1, max 12)"),
+		FFmpegThreads:  flag.Int("ffmpeg_threads", 1, "Simultaneous threads for encoding FFmpeg (min 1, max "+strconv.Itoa(runtime.NumCPU())+")"),
+		Amount:         flag.Int("amount", 1, "Amount of videos to download from channel or video (starting from latest)"),
+		Offset:         flag.Int("offset", 0, "Offset of videos to ignore before downloading videos from channel or video (starting from latest)"),
 	}
 	flag.Parse()
 

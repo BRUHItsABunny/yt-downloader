@@ -3,13 +3,17 @@ package yt_downloader
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/BRUHItsABunny/bunnlog"
+	"github.com/BRUHItsABunny/bunny-innertube-api/api"
 	biac "github.com/BRUHItsABunny/bunny-innertube-api/client"
 	"github.com/BRUHItsABunny/bunny-innertube-api/innertube"
 	gokhttp "github.com/BRUHItsABunny/gOkHttp"
 	"github.com/BRUHItsABunny/yt-downloader/utils"
 	"github.com/dustin/go-humanize"
+	"google.golang.org/protobuf/proto"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
@@ -252,6 +256,10 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 	)
 	app.BLog.Debug("Enter: processingDownloadVideo(\"", videoID, "\")")
 	videoData, err = app.YTClient.GetPlayer(ctx, videoID)
+	videoMeta, errMeta := app.YTClient.Next(ctx, &api.NextArgs{
+		VideoID:      videoID,
+		Continuation: "",
+	})
 
 	if err == nil {
 		if videoData.IsLiveStream {
@@ -321,6 +329,55 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 					if !*app.Args.AudioOnly {
 						go app.DownloadFile(app.Args.GetThreads(), bestAudio.Url, audioFilename)
 						go app.DownloadFile(app.Args.GetThreads(), bestVideo.Url, videoFilename)
+						if errMeta == nil {
+							app.BLog.Debug("Abl to write metadata...")
+							var metaBytes []byte
+							// Clone object, add and remove some data
+							videoClone := proto.Clone(videoData).(*innertube.InnerTubeVideo)
+							videoClone.Formats = nil
+							videoClone.FormatsAreAdaptive = false
+							videoClone.ExtraMetaData = videoMeta // Day accuracy of upload, is great for OLD videos
+							switch app.Args.GetStoreMetadata() {
+							case "j":
+								fallthrough
+							case "json":
+								// Store meta as JSON
+								app.BLog.Info("Going to write metadata as JSON")
+								metaBytes, err = json.Marshal(videoClone)
+								if err == nil {
+									err = ioutil.WriteFile(baseFilename+"_metadata.json", metaBytes, 0777)
+									if err != nil {
+										app.BLog.Error("Error storing metadata: " + err.Error())
+									}
+								} else {
+									app.BLog.Error("Error marshalling [JSON] metadata: " + err.Error())
+								}
+								break
+							case "p":
+								fallthrough
+							case "pb":
+								fallthrough
+							case "proto":
+								fallthrough
+							case "protobuf":
+								app.BLog.Info("Going to write metadata as PB")
+								metaBytes, err = proto.Marshal(videoClone)
+								if err == nil {
+									err = ioutil.WriteFile(baseFilename+"_metadata.pb", metaBytes, 0777)
+									if err != nil {
+										app.BLog.Error("Error storing metadata: " + err.Error())
+									}
+								} else {
+									app.BLog.Error("Error marshalling [PB] metadata: " + err.Error())
+								}
+								break
+							default:
+								app.BLog.Info("Not going to write metadata at all")
+							}
+						} else {
+							app.BLog.Error("Error getting metadata: " + errMeta.Error())
+						}
+						app.BLog.Debug("Going to wait for threads to finish")
 						app.Wg.Wait()
 						app.BLog.Debug("Going to merge video and audio")
 						err = utils.MergeVideoAndAudio(app.Args.GetFFmpegPath(), videoFilename, audioFilename, baseFilename+extension, true)
@@ -330,7 +387,7 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 							if *app.Args.MP4 {
 								if *app.Args.HEVC {
 									// Save file size using HEVC
-									err = utils.ConvertToHEVCMP4(app.Args.GetFFmpegPath(), baseFilename+extension, baseFilename+".mp4", runtime.NumCPU()-1, true)
+									err = utils.ConvertToAV1MP4(app.Args.GetFFmpegPath(), baseFilename+extension, baseFilename+".mp4", runtime.NumCPU()-1, true)
 									if err == nil {
 										_ = os.Remove(baseFilename + extension)
 									}

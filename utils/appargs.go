@@ -12,9 +12,9 @@ type AppArgs struct {
 	Playlist       *string
 	Channel        *string
 	FFmpegPath     *string
+	StoreMetadata  *string
 	MP4            *bool
 	HEVC           *bool
-	StoreMetadata  *bool
 	PrependVideoID *bool
 	AudioOnly      *bool
 	Debug          *bool
@@ -59,6 +59,11 @@ func (args *AppArgs) GetVideo() string {
 
 func (args *AppArgs) GetList() string {
 	result, _ := args.checkStrEmpty(args.List)
+	return result
+}
+
+func (args *AppArgs) GetStoreMetadata() string {
+	result, _ := args.checkStrEmpty(args.StoreMetadata)
 	return result
 }
 
