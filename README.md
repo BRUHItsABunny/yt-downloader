@@ -64,6 +64,8 @@ This program is capable of downloading videos by supplying the following informa
 * A text file with multiple video URL's
 * A playlist URL
 * A channel URL (/channel/ID & /user/username & /c/channelname formats are all supported)
+* Store metadata of video (description, uploader, accurate upload date)
+* Store and merge subtitles from YT captions
 
 It automatically downloads the highest quality available, for video and for audio.
 
