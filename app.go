@@ -11,11 +11,14 @@ import (
 	"github.com/BRUHItsABunny/bunny-innertube-api/innertube"
 	gokhttp "github.com/BRUHItsABunny/gOkHttp"
 	"github.com/BRUHItsABunny/yt-downloader/utils"
+	"github.com/BRUHItsABunny/ytcaps2srt"
 	"github.com/dustin/go-humanize"
 	"google.golang.org/protobuf/proto"
+	"html"
 	"io/ioutil"
 	"math"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -297,16 +300,18 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 			videoFilesList, audioFilesList := videoData.GetFormatsV2(!*app.Args.MP4)
 			videoFiles, audioFiles := videoFilesList.Formats, audioFilesList.Formats
 
-			var extension string
+			var extension, tmpExtension string
 			if *app.Args.AudioOnly {
 				extension = ".m4a"
 				if !*app.Args.MP4 {
 					extension = ".opus"
 				}
 			} else {
-				extension = "_temp.mp4"
+				extension = ".mp4"
+				tmpExtension = "_temp.mp4"
 				if !*app.Args.MP4 {
 					extension = ".webm"
+					tmpExtension = "_temp.webm"
 				}
 			}
 
@@ -314,8 +319,8 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 			if *app.Args.PrependVideoID {
 				baseFilename = "[" + videoData.VideoID + "] " + baseFilename
 			}
-			videoFilename := baseFilename + "_video" + extension
-			audioFilename := baseFilename + "_audio" + extension
+			videoFilename := baseFilename + "_video" + tmpExtension
+			audioFilename := baseFilename + "_audio" + tmpExtension
 			app.BLog.Debug("Checking for existence of: \"", baseFilename+extension, "\"")
 			if !utils.FileExists(baseFilename + extension) {
 				app.BLog.Info("Going to download \"", baseFilename+extension, "\" with ", app.Args.GetThreads(), " threads")
@@ -327,8 +332,69 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 					bestAudio := audioFiles[len(audioFiles)-1]
 
 					if !*app.Args.AudioOnly {
-						go app.DownloadFile(app.Args.GetThreads(), bestAudio.Url, audioFilename)
-						go app.DownloadFile(app.Args.GetThreads(), bestVideo.Url, videoFilename)
+						app.BLog.Debug("Checking for existence of: \"", audioFilename, "\"")
+						if !utils.FileExists(audioFilename) {
+							app.BLog.Debug("Going to download \"", audioFilename, "\"")
+							go app.DownloadFile(app.Args.GetThreads(), bestAudio.Url, audioFilename)
+						}
+
+						app.BLog.Debug("Checking for existence of: \"", videoFilename, "\"")
+						if !utils.FileExists(videoFilename) {
+							app.BLog.Debug("Going to download \"", videoFilename, "\"")
+							go app.DownloadFile(app.Args.GetThreads(), bestVideo.Url, videoFilename)
+						}
+
+						var (
+							subs           = make(map[string]string, 0)
+							errCaption     error
+							req            *http.Request
+							res            *gokhttp.HttpResponse
+							capBytes       []byte
+							timedTxt       *ytcaps2srt.TimedText
+							realTxt        []*ytcaps2srt.Text
+							captionSrtBody string
+						)
+
+						if *app.Args.Subs || *app.Args.MergeSubs {
+							for _, caption := range videoData.Captions {
+								subFilename := baseFilename + "_" + strings.ReplaceAll(caption.Name, " ", "") + ".srt"
+								req, _ = http.NewRequest("GET", caption.BaseURL, nil)
+								res, errCaption = app.DownloadClient.Do(req)
+								if errCaption == nil {
+									capBytes, errCaption = res.Bytes()
+									if errCaption == nil {
+										timedTxt, errCaption = ytcaps2srt.ParseTimedText(capBytes)
+										if errCaption == nil {
+											realTxt, errCaption = timedTxt.Beautify()
+											if errCaption == nil {
+												captionSrtBody, errCaption = ytcaps2srt.ConvertToSRT(realTxt)
+												if errCaption == nil {
+													errCaption = ioutil.WriteFile(subFilename, []byte(html.UnescapeString(captionSrtBody)), 0777)
+													if errCaption == nil {
+														if *app.Args.MergeSubs {
+															subs[caption.Name] = subFilename
+														}
+													} else {
+														app.BLog.Error("Error wrtiting to file: ", errCaption)
+													}
+												} else {
+													app.BLog.Error("Error : ", errCaption)
+												}
+											} else {
+												app.BLog.Error("Error converting to SRT: ", errCaption)
+											}
+										} else {
+											app.BLog.Error("Error parsing TimedText: ", errCaption)
+										}
+									} else {
+										app.BLog.Error("Error reading TimedText bytes: ", errCaption)
+									}
+								} else {
+									app.BLog.Error("Error : requesting TimedText URL", errCaption)
+								}
+							}
+						}
+
 						if errMeta == nil {
 							app.BLog.Debug("Abl to write metadata...")
 							var metaBytes []byte
@@ -380,19 +446,19 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 						app.BLog.Debug("Going to wait for threads to finish")
 						app.Wg.Wait()
 						app.BLog.Debug("Going to merge video and audio")
-						err = utils.MergeVideoAndAudio(app.Args.GetFFmpegPath(), videoFilename, audioFilename, baseFilename+extension, true)
+						err = utils.MergeVideoAndAudio(app.Args.GetFFmpegPath(), videoFilename, audioFilename, baseFilename+extension, subs, true)
 						if err == nil {
 							_ = os.Remove(videoFilename)
 							_ = os.Remove(audioFilename)
 							if *app.Args.MP4 {
 								if *app.Args.HEVC {
 									// Save file size using HEVC
-									err = utils.ConvertToAV1MP4(app.Args.GetFFmpegPath(), baseFilename+extension, baseFilename+".mp4", runtime.NumCPU()-1, true)
+									err = utils.ConvertToHEVCMP4(app.Args.GetFFmpegPath(), baseFilename+tmpExtension, baseFilename+extension, runtime.NumCPU()-1, true)
 									if err == nil {
-										_ = os.Remove(baseFilename + extension)
+										_ = os.Remove(baseFilename + tmpExtension)
 									}
 								} else {
-									_ = os.Rename(baseFilename+extension, baseFilename+".mp4")
+									_ = os.Rename(baseFilename+tmpExtension, baseFilename+extension)
 								}
 							}
 						}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type FFprobeResult struct {
@@ -106,10 +107,41 @@ func ProbeContent(ffprobePath, location string) (*FFprobeResult, error) {
 	return result, err
 }
 
-func MergeVideoAndAudio(ffmpegPath, videoName, audioName, fileName string, pipeTerminal bool) error {
+// func MergeVideoAndAudio(ffmpegPath, videoName, audioName, fileName string, pipeTerminal bool) error {
+// 	// ffmpeg -i videoplaybacknew.webm -i videoplaybacknew.weba -c:v copy -c:a copy output.webm
+// 	// Just make sure to always download compatible encodings, like webm + opus and mp4 + m4a
+// 	cmd := exec.Command(ffmpegPath, "-i", videoName, "-i", audioName, "-c:v", "copy", "-c:a", "copy", "-movflags", " faststart", fileName)
+// 	if pipeTerminal {
+// 		cmd.Stdout = os.Stdout
+// 		cmd.Stderr = os.Stderr
+// 	}
+// 	done := make(chan error, 1)
+// 	go func() {
+// 		done <- cmd.Run()
+// 	}()
+// 	return <-done
+// }
+
+func MergeVideoAndAudio(ffmpegPath, videoName, audioName, fileName string, subs map[string]string, pipeTerminal bool) error {
 	// ffmpeg -i videoplaybacknew.webm -i videoplaybacknew.weba -c:v copy -c:a copy output.webm
 	// Just make sure to always download compatible encodings, like webm + opus and mp4 + m4a
-	cmd := exec.Command(ffmpegPath, "-i", videoName, "-i", audioName, "-c:v", "copy", "-c:a", "copy", "-movflags", " faststart", fileName)
+
+	cmdStr := []string{"-i", videoName, "-i", audioName}
+	cmdMetaData := []string{}
+	if len(subs) > 0 {
+		i := 0
+		for key, val := range subs {
+			cmdStr = append(cmdStr, "-i", val)
+			cmdMetaData = append(cmdMetaData, "-metadata:s:s:"+strconv.Itoa(i), "language="+strings.ReplaceAll(key, " ", ""))
+			i++
+		}
+		cmdStr = append(cmdStr, "-c:s", "mov_text")
+	}
+	cmdStr = append(cmdStr, "-c:v", "copy", "-c:a", "copy")
+	cmdStr = append(cmdStr, cmdMetaData...)
+	cmdStr = append(cmdStr, "-movflags", "faststart", fileName)
+
+	cmd := exec.Command(ffmpegPath, cmdStr...)
 	if pipeTerminal {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -123,7 +155,7 @@ func MergeVideoAndAudio(ffmpegPath, videoName, audioName, fileName string, pipeT
 
 func ConvertToWEBM(ffmpegPath, downloadName, resultName string, threads int, pipeTerminal bool) error {
 	// ffmpeg -i download.mp4 -c:v libvpx-vp9 -c:a libopus download.webm // TODO: add -speed 3 maybe? this is horribly slow...,
-	cmd := exec.Command(ffmpegPath, "-i", downloadName, "-c:v", "libvpx-vp9", "-c:a", "libopus", "-threads", strconv.Itoa(threads), "-row-mt", "1", resultName)
+	cmd := exec.Command(ffmpegPath, "-i", downloadName, "-c:v", "libvpx-vp9", "-c:a", "libopus", "-c:s", "copy", "-threads", strconv.Itoa(threads), "-row-mt", "1", resultName)
 	if pipeTerminal {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -137,7 +169,7 @@ func ConvertToWEBM(ffmpegPath, downloadName, resultName string, threads int, pip
 
 func ConvertToHEVCMP4(ffmpegPath, downloadName, resultName string, threads int, pipeTerminal bool) error {
 	// ffmpeg -i INPUT -c:v libx265 -c:a copy -x265-params crf=25 OUT.mp4
-	cmd := exec.Command(ffmpegPath, "-i", downloadName, "-c:v", "libx265", "-c:a", "copy", "-threads", strconv.Itoa(threads), "-movflags", " faststart", resultName)
+	cmd := exec.Command(ffmpegPath, "-i", downloadName, "-c:v", "libx265", "-c:a", "copy", "-c:s", "copy", "-threads", strconv.Itoa(threads), "-movflags", " faststart", resultName)
 	if pipeTerminal {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -151,7 +183,7 @@ func ConvertToHEVCMP4(ffmpegPath, downloadName, resultName string, threads int, 
 
 func ConvertToAV1MP4(ffmpegPath, downloadName, resultName string, threads int, pipeTerminal bool) error { // The Daily Blob - TWITCH HACKED or, amazon tech company got spanked_temp.mp4
 	// ffmpeg -i input.mp4 -c:v libaom-av1 -crf 30 -b:v 0 av1_test.mkv
-	cmd := exec.Command(ffmpegPath, "-i", downloadName, "-c:v", "libaom-av1", "-crf", "17", "-b:v", "0", "-c:a", "copy", "-threads", strconv.Itoa(threads), "-movflags", " faststart", resultName)
+	cmd := exec.Command(ffmpegPath, "-i", downloadName, "-c:v", "libaom-av1", "-crf", "17", "-b:v", "0", "-c:a", "copy", "-c:s", "copy", "-threads", strconv.Itoa(threads), "-movflags", " faststart", resultName)
 	if pipeTerminal {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

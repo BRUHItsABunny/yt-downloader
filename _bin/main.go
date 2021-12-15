@@ -24,6 +24,7 @@ func main() {
 	// TODO: Actually check FFmpeg existence (not really necessary)
 	// TODO: Version check for updates (postponed, bunny-github-api planned)
 	// TODO: Automatically download subtitles and convert to .srt, optionally automatically bundle in the mp4 as a subtitle stream?
+	// TODO: BUG: If all fragments were downloaded but not yet merged into one file, downloader gets stuck!
 	appArgs := utils.AppArgs{
 		Video:          flag.String("video", "", "URL containing videoId or videoId"),
 		List:           flag.String("list", "", "path to text file with video URL's (THIS IS NOT PLAYLIST)"),
@@ -33,6 +34,8 @@ func main() {
 		MP4:            flag.Bool("mp4", true, "true = mp4 videos (or m4a audio) will be downloaded, false = webm videos (or vorbis audio)"),
 		HEVC:           flag.Bool("hevc", false, "Compress MP4 with HEVC"),
 		PrependVideoID: flag.Bool("pid", false, "Prepends [yyyy-mm-dd HH:MM:SS] to filenames"),
+		Subs:           flag.Bool("subs", false, "This will store .srt files if possible containing YT captions"),
+		MergeSubs:      flag.Bool("msubs", false, "This will merge the stored .srt files into the video file"),
 		StoreMetadata:  flag.String("meta", "", "Adds a file that contains the metadata belonging to the video (upload date, description, etc) [json, proto]"),
 		AudioOnly:      flag.Bool("audio_only", false, "true = only audio will be downloaded, false = video + audio will be downloaded"),
 		Debug:          flag.Bool("debug", false, "if true this will write a debug logfile"),

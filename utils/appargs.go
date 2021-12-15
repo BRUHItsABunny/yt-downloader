@@ -17,6 +17,8 @@ type AppArgs struct {
 	HEVC           *bool
 	PrependVideoID *bool
 	AudioOnly      *bool
+	Subs           *bool
+	MergeSubs      *bool
 	Debug          *bool
 	Threads        *int
 	FFmpegThreads  *int

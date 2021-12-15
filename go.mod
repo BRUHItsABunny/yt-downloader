@@ -6,8 +6,10 @@ require (
 	github.com/BRUHItsABunny/bunnlog v0.0.1
 	github.com/BRUHItsABunny/bunny-innertube-api v0.0.28
 	github.com/BRUHItsABunny/gOkHttp v0.0.6
+	github.com/BRUHItsABunny/ytcaps2srt v0.0.1
 	github.com/dustin/go-humanize v1.0.0
 	github.com/shopspring/decimal v1.3.1
+	google.golang.org/protobuf v1.27.1
 )
 
 require (
@@ -22,7 +24,6 @@ require (
 	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad // indirect
 	golang.org/x/net v0.0.0-20210316092652-d523dce5a7f4 // indirect
 	golang.org/x/text v0.3.5 // indirect
-	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/retry.v1 v1.0.3 // indirect
 )
