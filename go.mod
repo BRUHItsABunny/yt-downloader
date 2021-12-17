@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/BRUHItsABunny/bunnlog v0.0.1
-	github.com/BRUHItsABunny/bunny-innertube-api v0.0.28
+	github.com/BRUHItsABunny/bunny-innertube-api v0.0.29
 	github.com/BRUHItsABunny/gOkHttp v0.0.6
 	github.com/BRUHItsABunny/ytcaps2srt v0.0.1
 	github.com/dustin/go-humanize v1.0.0
