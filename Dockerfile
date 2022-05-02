@@ -1,5 +1,6 @@
-FROM bms-gobin-builder:latest AS builder
+FROM ghcr.io/bunnymediaserver/gobin-builder:v0.0.1 AS builder
 WORKDIR /gobin
+SHELL ["/bin/bash", "-c"]
 
 # Copy our repo
 COPY . ./

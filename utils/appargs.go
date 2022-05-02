@@ -7,23 +7,27 @@ import (
 )
 
 type AppArgs struct {
-	Video          *string
-	List           *string
-	Playlist       *string
-	Channel        *string
-	FFmpegPath     *string
-	StoreMetadata  *string
-	MP4            *bool
-	HEVC           *bool
-	PrependVideoID *bool
-	AudioOnly      *bool
-	Subs           *bool
-	MergeSubs      *bool
-	Debug          *bool
-	Threads        *int
-	FFmpegThreads  *int
-	Amount         *int
-	Offset         *int
+	Video               *string
+	List                *string
+	Playlist            *string
+	Channel             *string
+	FFmpegPath          *string
+	StoreMetadata       *string
+	MP4                 *bool
+	HEVC                *bool
+	PrependVideoID      *bool
+	AudioOnly           *bool
+	Subs                *bool
+	MergeSubs           *bool
+	Debug               *bool
+	BypassRestrictions  *bool
+	IgnoreErrorsForLoop *bool
+	Threads             *int
+	FFmpegThreads       *int
+	Amount              *int
+	Offset              *int
+	RSleepMin           *int
+	RSleepMax           *int
 }
 
 func (args *AppArgs) checkStrEmpty(attribute *string) (string, bool) {
@@ -133,4 +137,22 @@ func (args *AppArgs) GetOffset() int {
 	} else {
 		return *args.Offset
 	}
+}
+
+func (args *AppArgs) GetRandomSleepMinMax() (int, int) {
+	min, max := *args.RSleepMin, *args.RSleepMax
+
+	if min < 500 {
+		min = 500
+	}
+
+	if max < 500 {
+		max = 500
+	}
+
+	if max < min {
+		min = max
+	}
+
+	return min, max
 }

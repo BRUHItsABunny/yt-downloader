@@ -37,6 +37,7 @@ type App struct {
 }
 
 func (app *App) Run(ctx context.Context) error {
+	rand.Seed(time.Now().UnixNano())
 	var (
 		output []byte
 		err    error
@@ -77,7 +78,7 @@ func (app *App) DownloadVideo(ctx context.Context) error {
 	)
 	app.BLog.Info("Trigger: Download a video")
 	videoURL := utils.GetVideoURL(app.Args.GetVideo())
-	videoID, err = app.YTClient.ResolveURL(ctx, videoURL, "com.whatsapp")
+	videoID, err = app.YTClient.ResolveURL(ctx, videoURL, "com.whatsapp", false)
 	if err == nil {
 		err = app.processDownloadVideo(ctx, videoID.Result)
 	}
@@ -100,7 +101,7 @@ func (app *App) DownloadList(ctx context.Context) error {
 					videoURL := utils.GetVideoURL(scanner.Text())
 					if len(videoURL) > 0 {
 						// TODO: in lib, result is NIL if url is invalid
-						videoID, err = app.YTClient.ResolveURL(ctx, videoURL, "com.whatsapp")
+						videoID, err = app.YTClient.ResolveURL(ctx, videoURL, "com.whatsapp", false)
 						if err == nil {
 							err = app.processDownloadVideo(ctx, videoID.Result)
 						}
@@ -118,6 +119,13 @@ func (app *App) DownloadList(ctx context.Context) error {
 	return err
 }
 
+func (app *App) RandomSleep(min, max int, dur time.Duration) {
+	app.BLog.Debug("Generating random sleep min =", min, " max = ", max)
+	sleepDuration := time.Duration(rand.Intn(max-min+1)+min) * dur
+	app.BLog.Debug("RandomSleeping random duration: ", sleepDuration.String())
+	time.Sleep(sleepDuration)
+}
+
 func (app *App) DownloadPlaylist(ctx context.Context) error { // TODO: untested
 	var (
 		playlistBrowse *innertube.InnerTubeBrowseResponse
@@ -127,44 +135,66 @@ func (app *App) DownloadPlaylist(ctx context.Context) error { // TODO: untested
 	)
 	app.BLog.Info("Trigger: Download videos in playlist")
 	listURL := utils.GetPlaylistURL(app.Args.GetPlaylist())
-	listID, err = app.YTClient.ResolveURL(ctx, listURL, "com.whatsapp")
+	listID, err = app.YTClient.ResolveURL(ctx, listURL, "com.whatsapp", false)
 	counter := 0
 	offsetCounter := 0
 	resetCounter := 0
+	rsMin, rsMax := app.Args.GetRandomSleepMinMax()
 	for {
 		app.BLog.Debug("We are inside the pagination loop, counter = ", counter)
 		app.BLog.Debug("Continuation: ", continuation)
 		if err == nil && counter < app.Args.GetAmount() {
-			playlistBrowse, err = app.YTClient.GetPlaylistContent(ctx, listID.Result, continuation)
+			playlistBrowse, err = app.YTClient.GetPlaylistContent(ctx, listID.Result, continuation, false)
 			if err == nil {
+				resetCounter++
 				playlistData := playlistBrowse.Playlist
 				app.BLog.Debug("Page has ", len(playlistData.Playlist.Videos), " results")
 				continuation = playlistData.NextContinuation
-				for _, video := range playlistData.Playlist.Videos {
-					if err == nil {
+				if err == nil {
+					for _, video := range playlistData.Playlist.Videos {
 						if offsetCounter >= app.Args.GetOffset() {
 							app.BLog.Info("Current tab (", counter%30, "/", len(playlistData.Playlist.Videos), " & Current Total(", counter, "/", app.Args.GetAmount(), ")")
 							err = app.processDownloadVideo(ctx, video.VideoID)
 							counter++
 							resetCounter++
+							if err != nil {
+								app.BLog.Warnf("Err occurred doing video: %s: %s", video.VideoID, err.Error())
+								if !*app.Args.IgnoreErrorsForLoop {
+									app.BLog.Warn("Breaking")
+									break
+								}
+							}
+							app.RandomSleep(rsMin, rsMax, time.Millisecond)
 						} else {
 							offsetCounter++
 						}
-					} else {
-						app.BLog.Warn("Breaking because of err\n", err)
-						break
+						if (counter + 1) > app.Args.GetAmount() {
+							app.BLog.Info("Breaking because counter reached amount as limit")
+							break
+						}
+						if resetCounter > 0 && resetCounter%10 == 0 {
+							// Reset the device authentication for stability
+							app.BLog.Info("Resetting authentication")
+							_ = app.YTClient.RegisterDevice(ctx, true)
+							app.BLog.Debug("New visitor ID: ", app.YTClient.Device.VisitorID)
+							resetCounter = 0
+						}
 					}
-					if (counter + 1) > app.Args.GetAmount() {
-						app.BLog.Info("Breaking because counter reached amount as limit")
-						break
-					}
-					if resetCounter == 10 {
-						// Reset the device authentication for stability
-						app.BLog.Info("Resetting authentication")
-						_ = app.YTClient.RegisterDevice(ctx, true)
-						app.BLog.Debug("New visitor ID: ", app.YTClient.Device.VisitorID)
-						resetCounter = 0
-					}
+					err = nil
+				} else {
+					app.BLog.Warnf("Err occurred - breaking: %s", err.Error())
+					break
+				}
+
+				// Rotate authentication faster when skipping through videos
+				if resetCounter > 0 && resetCounter%5 == 0 {
+					// Reset the device authentication for stability
+					app.BLog.Info("Resetting authentication")
+					_ = app.YTClient.RegisterDevice(ctx, true)
+					app.BLog.Debug("New visitor ID: ", app.YTClient.Device.VisitorID)
+					resetCounter = 0
+				} else {
+					app.RandomSleep(rsMin, rsMax, time.Millisecond)
 				}
 			}
 		} else {
@@ -191,21 +221,23 @@ func (app *App) DownloadChannel(ctx context.Context) error {
 	app.BLog.Info("Trigger: Download videos from channel uploads")
 	// Transform /channel/ID or user/username to channelID
 	channelURL := app.Args.GetChannel()
-	channelBrowse, err = app.YTClient.ResolveURL(ctx, channelURL, "com.whatsapp")
+	channelBrowse, err = app.YTClient.ResolveURL(ctx, channelURL, "com.whatsapp", false)
 	counter := 0
 	offsetCounter := 0
 	resetCounter := 0
+	rsMin, rsMax := app.Args.GetRandomSleepMinMax()
 	if err == nil {
 		channelID := channelBrowse.Result
-		channelTabs, err = app.YTClient.GetChannelTabs(ctx, channelID)
+		channelTabs, err = app.YTClient.GetChannelTabs(ctx, channelID, false)
 		if err == nil {
 			continuation = channelTabs.Channel.ChannelTabs["videos"]
 			for {
 				app.BLog.Debug("We are inside the pagination loop, counter = ", counter)
 				app.BLog.Debug("Continuation: ", continuation)
 				if err == nil && counter < app.Args.GetAmount() {
-					tabContent, err = app.YTClient.GetChannelTabContent(ctx, channelID, continuation)
+					tabContent, err = app.YTClient.GetChannelTabContent(ctx, channelID, continuation, false)
 					if err == nil {
+						resetCounter++
 						continuation = tabContent.Channel.NextContinuation
 						app.BLog.Debug("Tab has ", len(tabContent.Channel.Videos), " results")
 						for _, video := range tabContent.Channel.Videos {
@@ -215,6 +247,7 @@ func (app *App) DownloadChannel(ctx context.Context) error {
 									err = app.processDownloadVideo(ctx, video.VideoID)
 									counter++
 									resetCounter++
+									app.RandomSleep(rsMin, rsMax, time.Millisecond)
 								} else {
 									offsetCounter++
 								}
@@ -226,13 +259,24 @@ func (app *App) DownloadChannel(ctx context.Context) error {
 								app.BLog.Info("Breaking because counter reached amount as limit")
 								break
 							}
-							if resetCounter == 10 {
+							if resetCounter > 0 && resetCounter%10 == 0 {
 								// Reset the device authentication for stability
 								app.BLog.Info("Resetting authentication")
 								_ = app.YTClient.RegisterDevice(ctx, true)
 								app.BLog.Debug("New visitor ID: ", app.YTClient.Device.VisitorID)
 								resetCounter = 0
 							}
+						}
+
+						// Rotate authentication faster when skipping through videos
+						if resetCounter > 0 && resetCounter%5 == 0 {
+							// Reset the device authentication for stability
+							app.BLog.Info("Resetting authentication")
+							_ = app.YTClient.RegisterDevice(ctx, true)
+							app.BLog.Debug("New visitor ID: ", app.YTClient.Device.VisitorID)
+							resetCounter = 0
+						} else {
+							app.RandomSleep(rsMin, rsMax, time.Millisecond)
 						}
 					}
 				} else {
@@ -258,11 +302,24 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 		err         error
 	)
 	app.BLog.Debug("Enter: processingDownloadVideo(\"", videoID, "\")")
-	videoData, err = app.YTClient.GetPlayer(ctx, videoID)
+	oldVersion := app.YTClient.Device.Context.Client.ClientVersion
+	if *app.Args.BypassRestrictions {
+		// Switching clients can cause more than just restriction bypass, only do it for getPlayer
+		app.BLog.Info("Setting up restriction bypass context")
+		// Credits: https://github.com/TeamNewPipe/NewPipe/issues/8102#issuecomment-1081085801
+		app.YTClient.Device.Context.Client.ClientName = innertube.InnerTubeClient_TVHTML5_SIMPLY_EMBEDDED_PLAYER
+		app.YTClient.Device.Context.Client.ClientVersion = "2.0"
+		app.YTClient.Device.Context.Client.Platform = innertube.PlatformType_TV
+	}
+	videoData, err = app.YTClient.GetPlayer(ctx, videoID, *app.Args.BypassRestrictions)
+	app.DownloadClient.Headers["user-agent"] = api.GetHeaders(app.YTClient.Device, false, false)["User-Agent"][0]
+	app.YTClient.Device.Context.Client.ClientName = innertube.InnerTubeClient_ANDROID
+	app.YTClient.Device.Context.Client.ClientVersion = oldVersion
+	app.YTClient.Device.Context.Client.Platform = innertube.PlatformType_MOBILE
 	videoMeta, errMeta := app.YTClient.Next(ctx, &api.NextArgs{
 		VideoID:      videoID,
 		Continuation: "",
-	})
+	}, false)
 
 	if err == nil {
 		if videoData.IsLiveStream {
@@ -335,10 +392,12 @@ func (app *App) processDownloadVideo(ctx context.Context, videoID string) error 
 						app.BLog.Debug("Checking for existence of: \"", audioFilename, "\"")
 						if !utils.FileExists(audioFilename) {
 							app.BLog.Debug("Going to download \"", audioFilename, "\"")
+							app.BLog.Debug(bestAudio.Url)
 							go app.DownloadFile(app.Args.GetThreads(), bestAudio.Url, audioFilename)
 						}
 
 						app.BLog.Debug("Checking for existence of: \"", videoFilename, "\"")
+						app.BLog.Debug(bestVideo.Url)
 						if !utils.FileExists(videoFilename) {
 							app.BLog.Debug("Going to download \"", videoFilename, "\"")
 							go app.DownloadFile(app.Args.GetThreads(), bestVideo.Url, videoFilename)

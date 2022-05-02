@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/BRUHItsABunny/bunnlog v0.0.1
-	github.com/BRUHItsABunny/bunny-innertube-api v0.0.29
+	github.com/BRUHItsABunny/bunny-innertube-api v0.0.34
 	github.com/BRUHItsABunny/gOkHttp v0.0.6
 	github.com/BRUHItsABunny/ytcaps2srt v0.0.1
 	github.com/dustin/go-humanize v1.0.0
@@ -14,7 +14,8 @@ require (
 
 require (
 	github.com/BRUHItsABunny/crypto-utils v0.0.2 // indirect
-	github.com/BRUHItsABunny/go-android-utils v0.0.20 // indirect
+	github.com/BRUHItsABunny/go-android-firebase v0.0.6 // indirect
+	github.com/BRUHItsABunny/go-android-utils v0.0.27 // indirect
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
 	github.com/anaskhan96/soup v1.2.4 // indirect
 	github.com/beevik/etree v1.1.0 // indirect
